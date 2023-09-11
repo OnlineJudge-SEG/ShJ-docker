@@ -1,0 +1,451 @@
+diff --git a/application/config/database.php b/application/config/database.php
+index f3446f4..bafc783 100644
+--- a/application/config/database.php
++++ b/application/config/database.php
+@@ -85,9 +85,9 @@ $db['default'] = array(
+ 	/*  Enter database connection settings here:  */
+ 	'dbdriver' => 'mysqli',     // database driver (mysqli, postgre)
+ 	'hostname' => 'localhost',  // database host
+-	'username' => '',           // database username
+-	'password' => '',           // database password
+-	'database' => '',           // database name
++	'username' => 'root',           // database username
++	'password' => '1q2w3e4r',           // database password
++	'database' => 'sharif',           // database name
+ 	'dbprefix' => 'shj_',       // table prefix
+ 	/**********************************************/
+ 
+diff --git a/application/controllers/Assignments.php b/application/controllers/Assignments.php
+index 6452252..e528cc4 100644
+--- a/application/controllers/Assignments.php
++++ b/application/controllers/Assignments.php
+@@ -101,12 +101,18 @@ class Assignments extends CI_Controller
+ 	{
+ 		// Find pdf file
+ 		if ($problem_id === NULL)
+-			$pattern = rtrim($this->settings_model->get_setting('assignments_root'),'/')."/assignment_{$assignment_id}/*.pdf";
++			$pattern = rtrim($this->settings_model->get_setting('assignments_root'),'/')."/assignment_{$assignment_id}/*.zip";
+ 		else
+ 			$pattern = rtrim($this->settings_model->get_setting('assignments_root'),'/')."/assignment_{$assignment_id}/p{$problem_id}/*.pdf";
+ 		$pdf_files = glob($pattern);
+-		if ( ! $pdf_files )
+-			show_error("File not found");
++		if ( ! $pdf_files ) {
++			if ($problem_id === NULL)
++				$pattern = rtrim($this->settings_model->get_setting('assignments_root'),'/')."/assignment_{$assignment_id}/*.pdf";
++			$pdf_files = glob($pattern);
++			if ( ! $pdf_files ) {
++				show_error("File not found");
++			}
++		}
+ 
+ 		// Download the file to browser
+ 		$this->load->helper('download')->helper('file');
+@@ -304,10 +310,10 @@ class Assignments extends CI_Controller
+ 						'name' => 'Problem ',
+ 						'score' => 100,
+ 						'c_time_limit' => 500,
+-						'python_time_limit' => 1500,
++						'python_time_limit' => 0,
+ 						'java_time_limit' => 2000,
+-						'memory_limit' => 50000,
+-						'allowed_languages' => 'C,C++,Python 2,Python 3,Java',
++						'memory_limit' => 512000,
++						'allowed_languages' => 'C,C++,Java',
+ 						'diff_cmd' => 'diff',
+ 						'diff_arg' => '-bB',
+ 						'is_upload_only' => 0
+@@ -452,10 +458,10 @@ class Assignments extends CI_Controller
+ 
+ 		$config = array(
+ 			'upload_path' => $assignment_dir,
+-			'allowed_types' => 'pdf',
++			'allowed_types' => 'zip|pdf',
+ 		);
+ 		$this->upload->initialize($config);
+-		$old_pdf_files = glob("$assignment_dir/*.pdf");
++		$old_pdf_files = glob("$assignment_dir/*.zip");
+ 		$pdf_uploaded = $this->upload->do_upload("pdf");
+ 		if ($_FILES['pdf']['error'] === UPLOAD_ERR_NO_FILE)
+ 			$this->messages[] = array(
+@@ -490,7 +496,7 @@ class Assignments extends CI_Controller
+ 
+ 			// Extract new test cases and descriptions in temp directory
+ 			$this->load->library('unzip');
+-			$this->unzip->allow(array('txt', 'cpp', 'html', 'md', 'pdf'));
++			$this->unzip->allow(array('txt', 'cpp', 'html', 'md', 'pdf', 'sh', 'c', 'java', 'h', 'hpp'));
+ 			$extract_result = $this->unzip->extract($u_data['full_path'], $tmp_dir);
+ 
+ 			// Remove the zip file
+diff --git a/application/controllers/Install.php b/application/controllers/Install.php
+index be91099..6b6f3bd 100644
+--- a/application/controllers/Install.php
++++ b/application/controllers/Install.php
+@@ -196,8 +196,8 @@ class Install extends CI_Controller
+ 			// insert default settings to table 'settings'
+ 			$result = $this->db->insert_batch('settings', array(
+ 				array('shj_key' => 'timezone',               'shj_value' => 'Asia/Tehran'),
+-				array('shj_key' => 'tester_path',            'shj_value' => '/home/shj/tester'),
+-				array('shj_key' => 'assignments_root',       'shj_value' => '/home/shj/assignments'),
++				array('shj_key' => 'tester_path',            'shj_value' => '/data/tester'),
++				array('shj_key' => 'assignments_root',       'shj_value' => '/data/assignments'),
+ 				array('shj_key' => 'file_size_limit',        'shj_value' => '50'),
+ 				array('shj_key' => 'output_size_limit',      'shj_value' => '1024'),
+ 				array('shj_key' => 'queue_is_working',       'shj_value' => '0'),
+diff --git a/application/controllers/Queueprocess.php b/application/controllers/Queueprocess.php
+index 77a6e45..dfe39b7 100644
+--- a/application/controllers/Queueprocess.php
++++ b/application/controllers/Queueprocess.php
+@@ -75,9 +75,9 @@ class Queueprocess extends CI_Controller
+ 			$op1 = $this->settings_model->get_setting('enable_log');
+ 			$op2 = $this->settings_model->get_setting('enable_easysandbox');
+ 			$op3 = 0;
+-			if ($file_type === 'c')
++			if ($file_type === 'c' || $file_type === 'h')
+ 				$op3 = $this->settings_model->get_setting('enable_c_shield');
+-			elseif ($file_type === 'cpp')
++			elseif ($file_type === 'cpp' || $file_type === 'hpp')
+ 				$op3 = $this->settings_model->get_setting('enable_cpp_shield');
+ 			$op4 = 0;
+ 			if ($file_type === 'py2')
+@@ -87,11 +87,11 @@ class Queueprocess extends CI_Controller
+ 			$op5 = $this->settings_model->get_setting('enable_java_policy');
+ 			$op6 = $assignment_info['javaexceptions'];
+ 
+-			if ($file_type === 'c' OR $file_type === 'cpp')
++			if ($file_type === 'c' OR $file_type === 'cpp' OR $file_type === 'h' OR $file_type === 'hpp')
+ 				$time_limit = $problem['c_time_limit']/1000;
+ 			elseif ($file_type === 'java')
+ 				$time_limit = $problem['java_time_limit']/1000;
+-			elseif ($file_extension === 'py')
++			elseif ($file_type === 'py')
+ 				$time_limit = $problem['python_time_limit']/1000;
+ 			$time_limit = round($time_limit, 3);
+ 			$time_limit_int = floor($time_limit) + 1;
+diff --git a/application/controllers/Submit.php b/application/controllers/Submit.php
+index e356bd6..908da0d 100644
+--- a/application/controllers/Submit.php
++++ b/application/controllers/Submit.php
+@@ -70,7 +70,7 @@ class Submit extends CI_Controller
+ 	{
+ 		switch ($type) {
+ 			case 'c': return ($extension==='c'?TRUE:FALSE);
+-			case 'cpp': return ($extension==='cpp'?TRUE:FALSE);
++			case 'cpp': return ($extension==='cpp'? TRUE:($extension === 'hpp'? TRUE:FALSE));
+ 			case 'py2': return ($extension==='py'?TRUE:FALSE);
+ 			case 'py3': return ($extension==='py'?TRUE:FALSE);
+ 			case 'java': return ($extension==='java'?TRUE:FALSE);
+@@ -214,7 +214,7 @@ class Submit extends CI_Controller
+ 				'problem' => $this->problem['id'],
+ 				'file_name' => $result['raw_name'],
+ 				'main_file_name' => $this->file_name,
+-				'file_type' => $this->filetype,
++				'file_type' => $this->ext,
+ 				'coefficient' => $this->coefficient,
+ 				'pre_score' => 0,
+ 				'time' => shj_now_str(),
+diff --git a/application/helpers/shj_helper.php b/application/helpers/shj_helper.php
+index 618add4..ca2697b 100644
+--- a/application/helpers/shj_helper.php
++++ b/application/helpers/shj_helper.php
+@@ -81,6 +81,8 @@ if ( ! function_exists('filetype_to_extension'))
+ 			case 'java': return 'java';
+ 			case 'zip': return 'zip';
+ 			case 'pdf': return 'pdf';
++			case 'hpp': return 'hpp'; 
++			case 'h': return 'h';
+ 			default: return FALSE;
+ 		}
+ 	}
+@@ -99,6 +101,8 @@ if ( ! function_exists('filetype_to_language'))
+ 		switch ($file_type) {
+ 			case 'c': return 'C';
+ 			case 'cpp': return 'C++';
++			case 'hpp': return 'C++';
++			case 'h': return 'C';
+ 			case 'py2': return 'Py 2';
+ 			case 'py3': return 'Py 3';
+ 			case 'java': return 'Java';
+diff --git a/application/views/pages/admin/add_assignment.twig b/application/views/pages/admin/add_assignment.twig
+index a07882c..faad8ed 100644
+--- a/application/views/pages/admin/add_assignment.twig
++++ b/application/views/pages/admin/add_assignment.twig
+@@ -25,10 +25,10 @@
+ 	<td><input type="text" name="name[]" class="sharif_input short" value="Problem "/></td>\
+ 	<td><input type="text" name="score[]" class="sharif_input tiny2" value="100"/></td>\
+ 	<td><input type="text" name="c_time_limit[]" class="sharif_input tiny2" value="500"/></td>\
+-	<td><input type="text" name="python_time_limit[]" class="sharif_input tiny2" value="1500"/></td>\
+-	<td><input type="text" name="java_time_limit[]" class="sharif_input tiny2" value="2000"/></td>\
+-	<td><input type="text" name="memory_limit[]" class="sharif_input tiny" value="50000"/></td>\
+-	<td><input type="text" name="languages[]" class="sharif_input short2" value="C,C++,Python 2,Python 3,Java"/></td>\
++	<td><input type="text" name="python_time_limit[]" class="sharif_input tiny2" value="0"/></td>\
++	<td><input type="text" name="java_time_limit[]" class="sharif_input tiny2" value="1000"/></td>\
++	<td><input type="text" name="memory_limit[]" class="sharif_input tiny" value="512000"/></td>\
++	<td><input type="text" name="languages[]" class="sharif_input short2" value="C,C++,Java"/></td>\
+ 	<td><input type="text" name="diff_cmd[]" class="sharif_input tiny" value="diff"/></td>\
+ 	<td><input type="text" name="diff_arg[]" class="sharif_input tiny" value="-bB"/></td>\
+ 	<td><input type="checkbox" name="is_upload_only[]" class="check" value="PID"/><td><i class="fa fa-times-circle fa-lg color1 delete_problem pointer"></i></td></td>\
+diff --git a/tester/shield/defh.h b/tester/shield/defh.h
+new file mode 100644
+index 0000000..3fd9ef8
+--- /dev/null
++++ b/tester/shield/defh.h
+@@ -0,0 +1,23 @@
++/*
++
++@file defc.h
++There should be a newline at end of this file.
++Put the message displayed to user after // in each line
++
++e.g. If you want to disallow goto, add this line:
++#define goto errorNo13    //Goto is not allowd
++
++*/
++
++#define system errorNo1      //"system" is not allowed
++#define freopen errorNo2     //File operation is not allowed
++#define fopen errorNo3       //File operation is not allowed
++#define fprintf errorNo4     //File operation is not allowed
++#define fscanf errorNo5      //File operation is not allowed
++#define feof errorNo6        //File operation is not allowed
++#define fclose errorNo7      //File operation is not allowed
++#define ifstream errorNo8    //File operation is not allowed
++#define ofstream errorNo9    //File operation is not allowed
++#define fork errorNo10       //Fork is not allowed
++#define clone errorNo11      //Clone is not allowed
++#define sleep errorNo12      //Sleep is not allowed
+diff --git a/tester/shield/defhpp.h b/tester/shield/defhpp.h
+new file mode 100644
+index 0000000..147765f
+--- /dev/null
++++ b/tester/shield/defhpp.h
+@@ -0,0 +1,16 @@
++/*
++
++@file defcpp.h
++There should be a newline at end of this file.
++Put the message displayed to user after // in each line
++Please note:
++Lots of "define"s that work in C, don't work correctly in C++.
++
++e.g. If you want to disallow goto, add this line:
++#define goto errorNo4    //Goto is not allowd
++
++*/
++
++#define fork errorNo1       //Fork is not allowed
++#define clone errorNo2      //Clone is not allowed
++#define sleep errorNo3      //Sleep is not allowed
+diff --git a/tester/tester.sh b/tester/tester.sh
+index ec16669..987fb1d 100755
+--- a/tester/tester.sh
++++ b/tester/tester.sh
+@@ -55,7 +55,7 @@ C_OPTIONS="-fno-asm -Dasm=error -lm -O2"
+ # -Werror: Make all warnings into errors
+ # -Wall ...
+ # Read more: http://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html
+-C_WARNING_OPTION="-w"
++C_WARNING_OPTION="-Werror=return-type -Werror=uninitialized"
+ 
+ 
+ 
+@@ -192,16 +192,55 @@ fi
+ 
+ COMPILE_BEGIN_TIME=$(($(date +%s%N)/1000000));
+ 
++# check the content of submitted file before furthur compiling
++# 		the execution of sub script will return an error message 
++# 		through exported environment variable `pre_compile_check_err_msg`
++# usage: pre_compile_check <language> <path/to/file>
++function pre_compile_check() {
++	local lang=$1
++	local filepath=$2
++	# execute the customized pre_check if neccessary
++	if [ -e "$PROBLEMPATH/pre_check.sh" ]; then
++		source $PROBLEMPATH/pre_check.sh
++		pre_check $lang $filepath
++		return $?
++	fi
++	return 0
++}
++
+ ########################################################################################################
+ ############################################ COMPILING JAVA ############################################
+ ########################################################################################################
+ 
+-if [ "$EXT" = "java" ]; then
+-	cp ../java.policy java.policy
++function compile_java_single_src() {
+ 	cp $PROBLEMPATH/$UN/$FILENAME.java $MAINFILENAME.java
+-	shj_log "Compiling as Java"
+ 	javac $MAINFILENAME.java >/dev/null 2>cerr
++}
++
++if [ "$EXT" = "java" ]; then
++	# check if use custom compile script for multiple sources
++	shj_log "Compiling as Java"
++	cp ../java.policy java.policy
++
++	# Before compiling: check the content of the submitted file
++	# 	if EXITCODE is 0, resume the original compile procedure
++	pre_compile_check java $PROBLEMPATH/$UN/$FILENAME.java
+ 	EXITCODE=$?
++	if [[ $EXITCODE -ne 0 ]]; then
++		echo "invalid code: $pre_compile_check_err_msg" >>cerr
++	else
++		# The original compile procedure
++		if [ -e "$PROBLEMPATH/compile.sh" ]; then
++			# caution: custom compile script must redefine the variable `MAINFILENAME` for the correct use in later execution
++			source $PROBLEMPATH/compile.sh
++			compile java
++		else 
++			compile_java_single_src
++		fi
++		EXITCODE=$?
++	fi
++
++	# Finish Compiling, deal with compile error if any
+ 	COMPILE_END_TIME=$(($(date +%s%N)/1000000));
+ 	shj_log "Compiled. Exit Code=$EXITCODE  Execution Time: $((COMPILE_END_TIME-COMPILE_BEGIN_TIME)) ms"
+ 	if [ $EXITCODE -ne 0 ]; then
+@@ -287,9 +326,17 @@ fi
+ ############################################ COMPILING C/C++ ###########################################
+ ########################################################################################################
+ 
+-if [ "$EXT" = "c" ] || [ "$EXT" = "cpp" ]; then
++function compile_c_cpp_single_src() {
++	cp ../shield/shield.$EXT shield.$EXT
++	cp ../shield/def$EXT.h def.h
++	# adding define to beginning of code:
++	echo '#define main themainmainfunction' | cat - code.c > thetemp && mv thetemp code.c
++	$COMPILER shield.$EXT $C_OPTIONS $C_WARNING_OPTION -o $EXEFILE >/dev/null 2>cerr
++}
++
++if [ "$EXT" = "c" ] || [ "$EXT" = "cpp" ] || [[ "$EXT" == "hpp" ]] || [[ "$EXT" == "h" ]]; then
+ 	COMPILER="gcc"
+-	if [ "$EXT" = "cpp" ]; then
++	if [ "$EXT" = "cpp" ] || [[ $EXT == "hpp" ]]; then
+ 		COMPILER="g++"
+ 	fi
+ 	EXEFILE="s_$(echo $FILENAME | sed 's/[^a-zA-Z0-9]//g')" # Name of executable file
+@@ -304,18 +351,34 @@ if [ "$EXT" = "c" ] || [ "$EXT" = "cpp" ]; then
+ 			SANDBOX_ON=false
+ 		fi
+ 	fi
+-	if $C_SHIELD_ON; then
++
++	# Before compiling: check the content of the submitted file
++	# 	if EXITCODE is 0, resume the original compile procedure
++	pre_compile_check c/cpp code.c
++	EXITCODE=$?
++	if [[ $EXITCODE -ne 0 ]]; then
++		echo "invalid code: $pre_compile_check_err_msg" >>cerr
++		cp ../shield/def$EXT.h def.h # for compressing the warning of def.h Not Found
++	# The following if-else structure is the original compile procedure
++	elif $C_SHIELD_ON; then
+ 		shj_log "Enabling Shield For C/C++"
+ 		# if code contains any 'undef', raise compile error:
+ 		if tr -d ' \t\n\r\f' < code.c | grep -q '#undef'; then
+ 			echo 'code.c:#undef is not allowed' >cerr
+ 			EXITCODE=110
+ 		else
+-			cp ../shield/shield.$EXT shield.$EXT
+-			cp ../shield/def$EXT.h def.h
+-			# adding define to beginning of code:
+-			echo '#define main themainmainfunction' | cat - code.c > thetemp && mv thetemp code.c
+-			$COMPILER shield.$EXT $C_OPTIONS $C_WARNING_OPTION -o $EXEFILE >/dev/null 2>cerr
++			# check if use custom compile script for multiple sources
++			if [ -e "$PROBLEMPATH/compile.sh" ]; then
++				# caution: the user-upload file is renamed as code.$EXT
++				# 				 do no forget to reference the global vairable ( e.g. EXEFILE ) in 
++				# 			   custom compile script
++				cp ../shield/def$EXT.h def.h
++				echo '#include "def.h"' | cat - code.c > thetemp && mv thetemp code.$EXT
++				source "$PROBLEMPATH/compile.sh"
++				compile c/cpp
++			else
++				compile_c_cpp_single_src
++			fi
+ 			EXITCODE=$?
+ 		fi
+ 	else
+@@ -323,25 +386,33 @@ if [ "$EXT" = "c" ] || [ "$EXT" = "cpp" ]; then
+ 		$COMPILER code.$EXT $C_OPTIONS $C_WARNING_OPTION -o $EXEFILE >/dev/null 2>cerr
+ 		EXITCODE=$?
+ 	fi
++
++	# Finish compiling, deal with compile errors if any
+ 	COMPILE_END_TIME=$(($(date +%s%N)/1000000));
+ 	shj_log "Compiled. Exit Code=$EXITCODE  Execution Time: $((COMPILE_END_TIME-COMPILE_BEGIN_TIME)) ms"
+ 	if [ $EXITCODE -ne 0 ]; then
++		# Compile error occurs, construct error message
+ 		shj_log "Compile Error"
+ 		shj_log "$(cat cerr | head -10)"
+ 		echo '<span class="shj_b">Compile Error<br>Error Messages: (line numbers are not correct)</span>' >$PROBLEMPATH/$UN/result.html
+ 		echo '<span class="shj_r">' >> $PROBLEMPATH/$UN/result.html
++
++		# Firstly, check any forbidden syscall defined in shield headers (def.h)
+ 		SHIELD_ACT=false
+ 		if $C_SHIELD_ON; then
+ 			while read line; do
+ 				if [ "`echo $line|cut -d" " -f1`" = "#define" ]; then
+ 					if grep -wq $(echo $line|cut -d" " -f3) cerr; then
+ 						echo `echo $line|cut -d"/" -f3` >> $PROBLEMPATH/$UN/result.html
+-						SHIELD_ACT=true
++						SHIELD_ACT=true # detect forbidden syscall, raise error
+ 						break
+ 					fi
+ 				fi
+ 			done <def.h
+ 		fi
++
++		# Secondly, if no forbidden syscalls, redirect the syntax/semantic errors reported by compiler
++		# 	in cerr into cerr2. The beginning 10 lines of the latter will be included in error message.
+ 		if ! $SHIELD_ACT; then
+ 			echo -e "\n" >> cerr
+ 			echo "" > cerr2
+@@ -349,16 +420,35 @@ if [ "$EXT" = "c" ] || [ "$EXT" = "cpp" ]; then
+ 				if [ "`echo $line|cut -d: -f1`" = "code.c" ]; then
+ 					echo ${line#code.c:} >>cerr2
+ 				fi
++				# grep compile errors in code.cpp
++				if [ "`echo $line|cut -d: -f1`" = "code.cpp" ]; then
++					echo ${line#code.cpp:} >>cerr2
++				fi
+ 				if [ "`echo $line|cut -d: -f1`" = "shield.c" ]; then
+ 					echo ${line#shield.c:} >>cerr2
+ 				fi
+ 				if [ "`echo $line|cut -d: -f1`" = "shield.cpp" ]; then
+ 					echo ${line#shield.cpp:} >>cerr2
+ 				fi
++				# grep link errors 
++				if `echo $line | grep -q "undefined reference"`; then
++					echo $(echo $line|awk -F: '{ print $NF }') >>cerr2
++				fi
++				# grep invalid file content
++				if `echo $line | grep -q "invalid code"`; then
++					echo $line >>cerr2
++				fi
+ 			done <cerr
+ 			(cat cerr2 | head -10 | sed 's/themainmainfunction/main/g' ) > cerr;
++			
++			# customized compile error message generation
++			if [[ -f "error_msg" ]]; then
++				(cat error_msg | head -20 | sed 's/themainmainfunction/main/g' ) > cerr;
++			fi
+ 			(cat cerr | sed 's/&/\&amp;/g' | sed 's/</\&lt;/g' | sed 's/>/\&gt;/g' | sed 's/"/\&quot;/g') >> $PROBLEMPATH/$UN/result.html
+ 		fi
++
++		# Finish the construction of error message
+ 		echo "</span>" >> $PROBLEMPATH/$UN/result.html
+ 		cd ..
+ 		rm -r $JAIL >/dev/null 2>/dev/null
+@@ -433,7 +523,7 @@ for((i=1;i<=TST;i++)); do
+ 			fi
+ 			continue
+ 		fi
+-	elif [ "$EXT" = "c" ] || [ "$EXT" = "cpp" ]; then
++	elif [ "$EXT" = "c" ] || [ "$EXT" = "cpp" ] || [[ "$EXT" == "hpp" ]] || [[ "$EXT" == "h" ]]; then
+ 		#$TIMEOUT ./$FILENAME <$PROBLEMPATH/in/input$i.txt >out 2>/dev/null
+ 		if $SANDBOX_ON; then
+ 			#LD_PRELOAD=./EasySandbox.so ./$FILENAME <$PROBLEMPATH/in/input$i.txt >out 2>/dev/null
